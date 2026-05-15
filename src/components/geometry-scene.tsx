@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { Canvas } from "@react-three/fiber";
 import { ContactShadows, Environment, Float, Grid, Html, OrbitControls, PresentationControls, Text } from "@react-three/drei";
+import * as THREE from "three";
 import { BufferGeometry, DoubleSide, Float32BufferAttribute } from "three";
 import { FigureId, Parameters } from "@/lib/figures";
 
@@ -105,8 +106,8 @@ function RealObject({ figureId, params }: Omit<Props, "realLife">) {
     case "cuboid":
       return (
         <group>
-          <Book scaleProps={[params.length * scale, params.height * scale, params.width * scale]} />
-          <ObjectLabel text="Книга" />
+          <Brick scaleProps={[params.length * scale, params.height * scale, params.width * scale]} />
+          <ObjectLabel text="Цеглина" />
         </group>
       );
     case "sphere":
@@ -193,6 +194,73 @@ function Rubik({ size }: { size: number }) {
           }),
         ),
       )}
+    </group>
+  );
+}
+
+function Brick({ scaleProps }: { scaleProps: [number, number, number] }) {
+  const [length, height, width] = scaleProps;
+
+  const brickTexture = useMemo(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 512;
+    canvas.height = 256;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+
+    ctx.fillStyle = "#9f4a32";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    for (let y = 0; y < canvas.height; y += 64) {
+      ctx.fillStyle = y % 128 === 0 ? "#b85b3c" : "#8f3f2b";
+      ctx.fillRect(0, y, canvas.width, 64);
+    }
+
+    ctx.strokeStyle = "#4f2319";
+    ctx.lineWidth = 8;
+
+    for (let y = 64; y < canvas.height; y += 64) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width, y);
+      ctx.stroke();
+    }
+
+    for (let row = 0; row < 4; row += 1) {
+      const y = row * 64;
+      const offset = row % 2 === 0 ? 0 : 64;
+
+      for (let x = -offset; x < canvas.width; x += 128) {
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x, y + 64);
+        ctx.stroke();
+      }
+    }
+
+    ctx.fillStyle = "rgba(255, 220, 180, 0.12)";
+    for (let i = 0; i < 120; i += 1) {
+      const x = (i * 47) % canvas.width;
+      const y = (i * 83) % canvas.height;
+      ctx.fillRect(x, y, 2 + (i % 4), 1 + (i % 3));
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(2, 1);
+    texture.colorSpace = THREE.SRGBColorSpace;
+
+    return texture;
+  }, []);
+  
+  return (
+    <group rotation={[0.02, -0.08, 0.01]}>
+      <mesh castShadow receiveShadow>
+        <boxGeometry args={[length, height, width]} />
+        <meshStandardMaterial map={brickTexture} roughness={0.9} metalness={0.02} />
+      </mesh>
     </group>
   );
 }

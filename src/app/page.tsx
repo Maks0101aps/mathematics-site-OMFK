@@ -123,7 +123,21 @@ export default function Home() {
 
           <label className="mb-5 flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/5 p-3">
             <span className="text-sm font-semibold">Показати приклад із реального життя</span>
-            <input type="checkbox" checked={realLife} onChange={(event) => setRealLife(event.target.checked)} className="size-5 accent-orange-400" />
+            <button
+              type="button"
+              role="switch"
+              aria-checked={realLife}
+              onClick={() => setRealLife(!realLife)}
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                realLife ? "bg-orange-400" : "bg-slate-600"
+              }`}
+            >
+              <span
+                className={`inline-block h-5 w-5 rounded-full bg-white shadow-md transition-transform ${
+                  realLife ? "translate-x-[26px]" : "translate-x-[2px]"
+                }`}
+              />
+            </button>
           </label>
 
           <div className="flex flex-col gap-4">
