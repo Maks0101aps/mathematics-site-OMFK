@@ -60,7 +60,7 @@ export const FIGURES: Figure[] = [
     controls: [{ key: "radius", label: "Радіус", min: 1, max: 6, step: 0.5, hint: "Радіус - відстань від центра кулі до будь-якої точки її поверхні." }],
     volumeFormula: "V=\\frac{4}{3}\\pi r^3",
     surfaceFormula: "S=4\\pi r^2",
-    realObject: "м'яч або планета",
+    realObject: "планета",
     lifeExplanation: "Куля зустрічається у футбольних м'ячах, апельсинах, глобусах і планетах.",
     task: "Збільш радіус кулі у 2 рази та подивись, як зміниться об'єм.",
     effectExplanation: "Об'єм кулі залежить від r^3, тому радіус дуже сильно впливає на результат.",

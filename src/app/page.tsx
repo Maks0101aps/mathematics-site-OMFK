@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Atom,
@@ -8,8 +8,11 @@ import {
   Calculator,
   GraduationCap,
   Info,
+  Maximize,
+  Minimize,
   MousePointer2,
   Orbit,
+  RotateCcw,
   Ruler,
   Shapes,
   Sparkles,
@@ -26,11 +29,40 @@ const GeometryScene = dynamic(() => import("@/components/geometry-scene").then((
 const format = (value: number) => new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 2 }).format(value);
 
 export default function Home() {
+  const sceneRef = useRef<HTMLElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [activeId, setActiveId] = useState<FigureId>("cube");
   const [params, setParams] = useState<Record<FigureId, Parameters>>(() =>
     Object.fromEntries(FIGURES.map((figure) => [figure.id, defaultParams(figure.id)])) as Record<FigureId, Parameters>,
   );
   const [realLife, setRealLife] = useState(false);
+  const [controlMode, setControlMode] = useState<"camera" | "figure">("camera");
+
+  const toggleFullscreen = useCallback(() => {
+    if (!sceneRef.current) return;
+    if (!document.fullscreenElement) {
+      sceneRef.current.requestFullscreen();
+    } else {
+      document.exitFullscreen();
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", handleFsChange);
+    return () => document.removeEventListener("fullscreenchange", handleFsChange);
+  }, []);
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === "f" || e.key === "F" || e.key === "\u0430" || e.key === "\u0410") {
+        toggleFullscreen();
+      }
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [toggleFullscreen]);
   const active = FIGURES.find((figure) => figure.id === activeId) ?? FIGURES[0];
   const currentParams = params[activeId];
   const result = useMemo(() => calculateFigure(activeId, currentParams), [activeId, currentParams]);
@@ -88,25 +120,53 @@ export default function Home() {
           </div>
         </aside>
 
-        <section className="glass relative min-h-[520px] overflow-hidden rounded-3xl">
+        <section ref={sceneRef} className={`glass relative overflow-hidden rounded-3xl ${isFullscreen ? "min-h-screen bg-[#07111f]" : "min-h-[520px]"}`}>
           <div className="absolute left-5 top-5 z-10 flex flex-wrap items-center gap-2">
             <span className="rounded-full border border-cyan-200/20 bg-cyan-300/10 px-3 py-1 text-sm text-cyan-100">{active.name}</span>
-            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-slate-200">
+            <button
+              type="button"
+              onClick={() => setControlMode("camera")}
+              className={`rounded-full border px-3 py-1 text-sm transition ${
+                controlMode === "camera"
+                  ? "border-cyan-300/60 bg-cyan-300/20 text-white shadow-glow"
+                  : "border-white/10 bg-white/5 text-slate-400 hover:border-white/25 hover:text-slate-200"
+              }`}
+            >
               <Orbit aria-hidden className="mr-1 inline size-4" />
               Керування камерою
-            </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setControlMode("figure")}
+              className={`rounded-full border px-3 py-1 text-sm transition ${
+                controlMode === "figure"
+                  ? "border-cyan-300/60 bg-cyan-300/20 text-white shadow-glow"
+                  : "border-white/10 bg-white/5 text-slate-400 hover:border-white/25 hover:text-slate-200"
+              }`}
+            >
+              <RotateCcw aria-hidden className="mr-1 inline size-4" />
+              Керування фігурою
+            </button>
           </div>
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="absolute right-5 top-5 z-10 flex items-center justify-center rounded-full border border-white/10 bg-white/5 p-2 text-slate-400 transition hover:border-white/25 hover:bg-white/10 hover:text-slate-200"
+            title={isFullscreen ? "Вийти (F / Esc)" : "Повноекранний режим (F)"}
+          >
+            {isFullscreen ? <Minimize aria-hidden className="size-4" /> : <Maximize aria-hidden className="size-4" />}
+          </button>
           <AnimatePresence mode="wait">
             <motion.div
               key={`${activeId}-${realLife}`}
-              className="h-[520px] md:h-[640px]"
+              className={isFullscreen ? "h-screen" : "h-[520px] md:h-[640px]"}
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 1.02 }}
               transition={{ duration: 0.32 }}
             >
               <Suspense fallback={null}>
-                <GeometryScene figureId={activeId} params={currentParams} realLife={realLife} />
+                <GeometryScene figureId={activeId} params={currentParams} realLife={realLife} controlMode={controlMode} />
               </Suspense>
             </motion.div>
           </AnimatePresence>

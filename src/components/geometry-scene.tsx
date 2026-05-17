@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
-import { ContactShadows, Environment, Float, Grid, Html, OrbitControls, PresentationControls, Text, useTexture } from "@react-three/drei";
+import { ContactShadows, Environment, Float, Grid, Html, OrbitControls, Text, useTexture } from "@react-three/drei";
+import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { BufferGeometry, DoubleSide, Float32BufferAttribute } from "three";
 import { FigureId, Parameters } from "@/lib/figures";
@@ -11,30 +12,94 @@ type Props = {
   figureId: FigureId;
   params: Parameters;
   realLife: boolean;
+  controlMode?: "camera" | "figure";
 };
 
 const scale = 0.42;
 
-export function GeometryScene({ figureId, params, realLife }: Props) {
+export function GeometryScene({ figureId, params, realLife, controlMode = "camera" }: Props) {
+  const figureMode = controlMode === "figure";
   return (
     <Canvas shadows camera={{ position: [6, 5, 8], fov: 42 }} dpr={[1, 1.8]}>
       <color attach="background" args={["#07111f"]} />
       <fog attach="fog" args={["#07111f", 12, 24]} />
-      <ambientLight intensity={0.62} />
-      <directionalLight castShadow position={[5, 8, 5]} intensity={2.3} shadow-mapSize={[2048, 2048]} />
-      <pointLight position={[-4, 3, -3]} intensity={1.6} color="#22d3ee" />
-      <pointLight position={[4, 2, 3]} intensity={1.3} color="#fb923c" />
-      <Environment preset="city" />
-      <PresentationControls global snap rotation={[0.18, -0.42, 0]} polar={[-0.35, 0.35]} azimuth={[-0.7, 0.7]}>
+      <ambientLight intensity={0.7} />
+      <directionalLight castShadow position={[5, 8, 5]} intensity={1.2} shadow-mapSize={[2048, 2048]} />
+      <pointLight position={[-4, 3, -3]} intensity={0.6} color="#22d3ee" />
+      <pointLight position={[4, 2, 3]} intensity={0.5} color="#fb923c" />
+      <Environment preset="city" environmentIntensity={0.3} />
+      <DragRotate enabled={figureMode}>
         <Float speed={1.6} rotationIntensity={0.16} floatIntensity={0.2}>
           <Shape figureId={figureId} params={params} realLife={realLife} />
         </Float>
-      </PresentationControls>
+      </DragRotate>
       <Grid args={[18, 18]} position={[0, -2.15, 0]} cellColor="#1e3a5f" sectionColor="#22d3ee" fadeDistance={18} fadeStrength={1.5} infiniteGrid />
       <ContactShadows position={[0, -2.05, 0]} opacity={0.55} blur={2.6} scale={10} />
-      <OrbitControls enablePan={false} minDistance={5} maxDistance={13} />
+      <OrbitControls enablePan={false} minDistance={5} maxDistance={13} enabled={!figureMode} />
     </Canvas>
   );
+}
+
+function DragRotate({ enabled, children }: { enabled: boolean; children: React.ReactNode }) {
+  const groupRef = useRef<THREE.Group>(null!);
+  const dragging = useRef(false);
+  const prev = useRef({ x: 0, y: 0 });
+  const velocity = useRef({ x: 0, y: 0 });
+  const lastAxes = useRef({ right: new THREE.Vector3(1, 0, 0), up: new THREE.Vector3(0, 1, 0) });
+  const { gl, camera } = useThree();
+
+  const getCameraAxes = () => {
+    const right = new THREE.Vector3();
+    const up = new THREE.Vector3();
+    camera.matrixWorld.extractBasis(right, up, new THREE.Vector3());
+    return { right: right.normalize(), up: up.normalize() };
+  };
+
+  useEffect(() => {
+    const dom = gl.domElement;
+    const onDown = (e: PointerEvent) => {
+      if (!enabled) return;
+      dragging.current = true;
+      velocity.current = { x: 0, y: 0 };
+      prev.current = { x: e.clientX, y: e.clientY };
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!dragging.current || !enabled || !groupRef.current) return;
+      const dx = (e.clientX - prev.current.x) * 0.01;
+      const dy = (e.clientY - prev.current.y) * 0.01;
+      prev.current = { x: e.clientX, y: e.clientY };
+      velocity.current = { x: dx, y: dy };
+      const { right, up } = getCameraAxes();
+      lastAxes.current = { right, up };
+      const qx = new THREE.Quaternion().setFromAxisAngle(up, dx);
+      const qy = new THREE.Quaternion().setFromAxisAngle(right, dy);
+      groupRef.current.quaternion.premultiply(qx).premultiply(qy);
+    };
+    const onUp = () => { dragging.current = false; };
+
+    dom.addEventListener("pointerdown", onDown);
+    dom.addEventListener("pointermove", onMove);
+    dom.addEventListener("pointerup", onUp);
+    return () => {
+      dom.removeEventListener("pointerdown", onDown);
+      dom.removeEventListener("pointermove", onMove);
+      dom.removeEventListener("pointerup", onUp);
+    };
+  }, [enabled, gl, camera]);
+
+  useFrame(() => {
+    if (!groupRef.current || dragging.current || !enabled) return;
+    const v = velocity.current;
+    if (Math.abs(v.x) < 0.0001 && Math.abs(v.y) < 0.0001) return;
+    const { right, up } = lastAxes.current;
+    const qx = new THREE.Quaternion().setFromAxisAngle(up, v.x);
+    const qy = new THREE.Quaternion().setFromAxisAngle(right, v.y);
+    groupRef.current.quaternion.premultiply(qx).premultiply(qy);
+    v.x *= 0.95;
+    v.y *= 0.95;
+  });
+
+  return <group ref={groupRef}>{children}</group>;
 }
 
 function Shape({ figureId, params, realLife }: Props) {
@@ -163,38 +228,28 @@ function boxGeometry() {
 }
 
 function Rubik({ size }: { size: number }) {
-  const faces = [
-    { axis: "x", side: 1, color: "#ef4444" },
-    { axis: "x", side: -1, color: "#f97316" },
-    { axis: "y", side: 1, color: "#f8fafc" },
-    { axis: "y", side: -1, color: "#eab308" },
-    { axis: "z", side: 1, color: "#22c55e" },
-    { axis: "z", side: -1, color: "#2563eb" },
-  ] as const;
-  const cells = [-1, 0, 1];
-  const cellSize = size * 0.24;
-  const gap = size * 0.285;
+  const [texRight, texLeft, texTop, texBottom, texFront, texBack] = useTexture([
+    "/textures/rubik-right.jpg",
+    "/textures/rubik-left.jpg",
+    "/textures/rubik-top.jpg",
+    "/textures/rubik-bottom.jpg",
+    "/textures/rubik-front.jpg",
+    "/textures/rubik-back.jpg",
+  ]);
+  [texRight, texLeft, texTop, texBottom, texFront, texBack].forEach((t) => {
+    t.colorSpace = THREE.SRGBColorSpace;
+  });
 
   return (
-    <group>
-      <mesh castShadow receiveShadow scale={[size, size, size]}>
-        {boxGeometry()}
-        <meshStandardMaterial color="#111827" roughness={0.38} />
-      </mesh>
-      {faces.flatMap((face) =>
-        cells.flatMap((a) =>
-          cells.map((b) => {
-            const key = `${face.axis}-${face.side}-${a}-${b}`;
-            return (
-              <mesh key={key} position={stickerPosition(face.axis, face.side, a * gap, b * gap, size / 2 + 0.012)} rotation={stickerRotation(face.axis)} scale={[cellSize, cellSize, 0.012]}>
-                <boxGeometry args={[1, 1, 1]} />
-                <meshStandardMaterial color={face.color} roughness={0.34} metalness={0.04} />
-              </mesh>
-            );
-          }),
-        ),
-      )}
-    </group>
+    <mesh castShadow receiveShadow>
+      <boxGeometry args={[size, size, size]} />
+      <meshStandardMaterial attach="material-0" map={texRight} roughness={0.34} metalness={0.04} />
+      <meshStandardMaterial attach="material-1" map={texLeft} roughness={0.34} metalness={0.04} />
+      <meshStandardMaterial attach="material-2" map={texTop} roughness={0.34} metalness={0.04} />
+      <meshStandardMaterial attach="material-3" map={texBottom} roughness={0.34} metalness={0.04} />
+      <meshStandardMaterial attach="material-4" map={texFront} roughness={0.34} metalness={0.04} />
+      <meshStandardMaterial attach="material-5" map={texBack} roughness={0.34} metalness={0.04} />
+    </mesh>
   );
 }
 
@@ -286,57 +341,39 @@ function Can({ radius, height }: { radius: number; height: number }) {
 }
 
 function TrafficCone({ radius, height }: { radius: number; height: number }) {
+  const [sideTex, bottomTex] = useTexture([
+    "/textures/cone-side.jpg",
+    "/textures/cone-bottom.jpg",
+  ]);
+  sideTex.colorSpace = THREE.SRGBColorSpace;
+  bottomTex.colorSpace = THREE.SRGBColorSpace;
+
   return (
     <group>
       <mesh castShadow receiveShadow>
-        <coneGeometry args={[radius, height, 64]} />
-        <meshStandardMaterial color="#f97316" roughness={0.38} />
+        <coneGeometry args={[radius, height, 64, 1, true]} />
+        <meshStandardMaterial map={sideTex} roughness={0.38} metalness={0.04} side={DoubleSide} />
       </mesh>
-      <mesh position={[0, -height / 2 + height * 0.28, 0]}>
-        <cylinderGeometry args={[radius * 0.7, radius * 0.78, height * 0.07, 64]} />
-        <meshStandardMaterial color="#f8fafc" roughness={0.42} />
-      </mesh>
-      <mesh position={[0, -height / 2 + height * 0.52, 0]}>
-        <cylinderGeometry args={[radius * 0.38, radius * 0.46, height * 0.055, 64]} />
-        <meshStandardMaterial color="#f8fafc" roughness={0.42} />
-      </mesh>
-      <mesh position={[0, -height / 2 - 0.04, 0]} scale={[radius * 1.9, 0.08, radius * 1.9]}>
-        {boxGeometry()}
-        <meshStandardMaterial color="#111827" roughness={0.5} />
-      </mesh>
-      <mesh position={[0, height / 2 + 0.03, 0]}>
-        <sphereGeometry args={[radius * 0.08, 16, 16]} />
-        <meshStandardMaterial color="#f8fafc" roughness={0.3} />
+      <mesh castShadow receiveShadow position={[0, -height / 2, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[radius, 64]} />
+        <meshStandardMaterial map={bottomTex} roughness={0.38} metalness={0.04} side={DoubleSide} />
       </mesh>
     </group>
   );
 }
 
 function EgyptPyramid({ base, height }: { base: number; height: number }) {
-  const levels = 5;
+  const pyramidTex = useTexture("/textures/pyramid.jpg");
+  pyramidTex.wrapS = THREE.RepeatWrapping;
+  pyramidTex.wrapT = THREE.RepeatWrapping;
+  pyramidTex.colorSpace = THREE.SRGBColorSpace;
+
   return (
     <group>
-      <mesh castShadow receiveShadow>
+      <mesh castShadow receiveShadow rotation={[0, Math.PI / 4, 0]}>
         <coneGeometry args={[base / Math.SQRT2, height, 4]} />
-        <meshStandardMaterial color="#d6a85f" roughness={0.72} />
+        <meshStandardMaterial map={pyramidTex} roughness={0.82} metalness={0.02} side={DoubleSide} />
       </mesh>
-      {Array.from({ length: levels }).map((_, index) => {
-        const y = -height / 2 + (index + 0.5) * (height / levels);
-        const width = base * (1 - index / (levels + 1));
-        return (
-          <mesh key={index} position={[0, y, 0]} rotation={[0, Math.PI / 4, 0]} scale={[width, 0.018, width]}>
-            {boxGeometry()}
-            <meshStandardMaterial color={index % 2 ? "#c7924c" : "#e0b66b"} roughness={0.86} />
-          </mesh>
-        );
-      })}
-      <mesh position={[0, -height / 2 - 0.035, 0]} scale={[base * 1.25, 0.07, base * 1.25]}>
-        {boxGeometry()}
-        <meshStandardMaterial color="#8b5e34" roughness={0.9} />
-      </mesh>
-      <Text position={[0, -height / 2 + height * 0.2, base * 0.36]} rotation={[0, 0, 0]} fontSize={0.16} color="#fff7ed" anchorX="center">
-        GIZA
-      </Text>
     </group>
   );
 }
@@ -344,55 +381,16 @@ function EgyptPyramid({ base, height }: { base: number; height: number }) {
 function ChocolatePrism({ base, height }: { base: number; height: number }) {
   const length = Math.max(height * 1.35, base * 2.2);
   const prismHeight = base * 0.76;
-  const segmentCount = 7;
-  const segmentStep = length / segmentCount;
 
-  return (
-    <group rotation={[0.02, 0.66, 0]}>
-      <TriangularPrism length={length} base={base} prismHeight={prismHeight} color="#f8c537" />
+  const [sideTex, baseTex] = useTexture([
+    "/textures/prism-side.jpg",
+    "/textures/prism-base.jpg",
+  ]);
+  sideTex.wrapS = THREE.RepeatWrapping;
+  sideTex.wrapT = THREE.RepeatWrapping;
+  sideTex.colorSpace = THREE.SRGBColorSpace;
+  baseTex.colorSpace = THREE.SRGBColorSpace;
 
-      <mesh position={[0, -prismHeight * 0.2, base * 0.515]} scale={[length * 0.76, 0.052, base * 0.2]}>
-        {boxGeometry()}
-        <meshStandardMaterial color="#fef3c7" roughness={0.35} />
-      </mesh>
-      <Text position={[0, -prismHeight * 0.19, base * 0.555]} fontSize={Math.min(0.32, base * 0.17)} color="#7c2d12" anchorX="center" anchorY="middle">
-        TOBLERONE
-      </Text>
-
-      {Array.from({ length: segmentCount - 1 }).map((_, index) => (
-        <mesh key={index} position={[-length / 2 + segmentStep * (index + 1), -prismHeight * 0.2, base * 0.57]} scale={[0.022, 0.07, base * 0.23]}>
-          {boxGeometry()}
-          <meshStandardMaterial color="#9a3412" roughness={0.45} />
-        </mesh>
-      ))}
-
-      <mesh position={[0, prismHeight * 0.47, 0]} scale={[length * 0.72, 0.035, 0.035]}>
-        {boxGeometry()}
-        <meshStandardMaterial color="#fff7cc" roughness={0.4} />
-      </mesh>
-
-      <Text position={[0, prismHeight * 0.57, 0]} fontSize={Math.min(0.2, base * 0.11)} color="#7c2d12" anchorX="center" anchorY="middle">
-        трикутна призма
-      </Text>
-    </group>
-  );
-}
-
-function TriangularPrism({
-  length,
-  base,
-  prismHeight,
-  color,
-  position = [0, 0, 0],
-  opacity = 1,
-}: {
-  length: number;
-  base: number;
-  prismHeight: number;
-  color: string;
-  position?: [number, number, number];
-  opacity?: number;
-}) {
   const geometry = useMemo(() => {
     const x1 = -length / 2;
     const x2 = length / 2;
@@ -400,74 +398,83 @@ function TriangularPrism({
     const yTop = prismHeight / 2;
     const zBack = -base / 2;
     const zFront = base / 2;
-    const vertices = [
-      x1,
-      yBottom,
-      zBack,
-      x1,
-      yBottom,
-      zFront,
-      x1,
-      yTop,
-      0,
-      x2,
-      yBottom,
-      zBack,
-      x2,
-      yBottom,
-      zFront,
-      x2,
-      yTop,
-      0,
-    ];
-    const indices = [
-      0,
-      2,
-      1,
-      3,
-      4,
-      5,
-      0,
-      1,
-      4,
-      0,
-      4,
-      3,
-      1,
-      2,
-      5,
-      1,
-      5,
-      4,
-      2,
-      0,
-      3,
-      2,
-      3,
-      5,
-    ];
-    const prism = new BufferGeometry();
-    prism.setAttribute("position", new Float32BufferAttribute(vertices, 3));
-    prism.setIndex(indices);
-    prism.computeVertexNormals();
-    return prism;
+
+    const positions: number[] = [];
+    const normals: number[] = [];
+    const uvs: number[] = [];
+    const indices: number[] = [];
+    let idx = 0;
+
+    const addQuad = (
+      p0: number[], p1: number[], p2: number[], p3: number[], n: number[]
+    ) => {
+      positions.push(...p0, ...p1, ...p2, ...p3);
+      normals.push(...n, ...n, ...n, ...n);
+      uvs.push(0, 0, 1, 0, 1, 1, 0, 1);
+      indices.push(idx, idx + 1, idx + 2, idx, idx + 2, idx + 3);
+      idx += 4;
+    };
+
+    const addTri = (p0: number[], p1: number[], p2: number[], n: number[]) => {
+      positions.push(...p0, ...p1, ...p2);
+      normals.push(...n, ...n, ...n);
+      uvs.push(0, 0, 1, 0, 0.5, 1);
+      indices.push(idx, idx + 1, idx + 2);
+      idx += 3;
+    };
+
+    // Bottom face (quad)
+    addQuad(
+      [x1, yBottom, zFront], [x2, yBottom, zFront],
+      [x2, yBottom, zBack], [x1, yBottom, zBack],
+      [0, -1, 0]
+    );
+    // Front face (quad)
+    const nFront = [0, base / 2, prismHeight / 2];
+    const nfLen = Math.hypot(nFront[1], nFront[2]);
+    addQuad(
+      [x1, yBottom, zFront], [x2, yBottom, zFront],
+      [x2, yTop, 0], [x1, yTop, 0],
+      [0, nFront[1] / nfLen, nFront[2] / nfLen]
+    );
+    // Back face (quad)
+    addQuad(
+      [x2, yBottom, zBack], [x1, yBottom, zBack],
+      [x1, yTop, 0], [x2, yTop, 0],
+      [0, nFront[1] / nfLen, -nFront[2] / nfLen]
+    );
+    // Left triangle
+    addTri(
+      [x1, yBottom, zBack], [x1, yBottom, zFront], [x1, yTop, 0],
+      [-1, 0, 0]
+    );
+    // Right triangle
+    addTri(
+      [x2, yBottom, zFront], [x2, yBottom, zBack], [x2, yTop, 0],
+      [1, 0, 0]
+    );
+
+    const geo = new BufferGeometry();
+    geo.setAttribute("position", new Float32BufferAttribute(positions, 3));
+    geo.setAttribute("normal", new Float32BufferAttribute(normals, 3));
+    geo.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
+    geo.setIndex(indices);
+    // Groups: 0=bottom(quad,6idx), 1=front(quad,6idx), 2=back(quad,6idx), 3=left tri(3idx), 4=right tri(3idx)
+    geo.addGroup(0, 6, 0);   // bottom - side texture
+    geo.addGroup(6, 6, 0);   // front - side texture
+    geo.addGroup(12, 6, 0);  // back - side texture
+    geo.addGroup(18, 3, 1);  // left triangle - base texture
+    geo.addGroup(21, 3, 1);  // right triangle - base texture
+    return geo;
   }, [base, length, prismHeight]);
 
   return (
-    <mesh castShadow receiveShadow geometry={geometry} position={position}>
-      <meshStandardMaterial color={color} roughness={0.46} metalness={0.06} transparent={opacity < 1} opacity={opacity} side={DoubleSide} />
-    </mesh>
+    <group rotation={[0, 0.66, 0]}>
+      <mesh castShadow receiveShadow geometry={geometry}>
+        <meshStandardMaterial attach="material-0" map={sideTex} roughness={0.46} metalness={0.06} side={DoubleSide} />
+        <meshStandardMaterial attach="material-1" map={baseTex} roughness={0.46} metalness={0.06} side={DoubleSide} />
+      </mesh>
+    </group>
   );
 }
 
-function stickerPosition(axis: "x" | "y" | "z", side: 1 | -1, a: number, b: number, value: number): [number, number, number] {
-  if (axis === "x") return [side * value, a, b];
-  if (axis === "y") return [a, side * value, b];
-  return [a, b, side * value];
-}
-
-function stickerRotation(axis: "x" | "y" | "z"): [number, number, number] {
-  if (axis === "x") return [0, Math.PI / 2, 0];
-  if (axis === "y") return [Math.PI / 2, 0, 0];
-  return [0, 0, 0];
-}
