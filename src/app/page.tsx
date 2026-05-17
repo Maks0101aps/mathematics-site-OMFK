@@ -7,6 +7,9 @@ import {
   Box,
   Calculator,
   GraduationCap,
+  ChevronDown,
+  Eye,
+  FileText,
   Info,
   Maximize,
   Minimize,
@@ -37,6 +40,21 @@ export default function Home() {
   );
   const [realLife, setRealLife] = useState(false);
   const [controlMode, setControlMode] = useState<"camera" | "figure">("camera");
+  const [showFormulas, setShowFormulas] = useState(false);
+  const [showElements, setShowElements] = useState(false);
+  const [hiddenElements, setHiddenElements] = useState<Set<string>>(new Set());
+  const [showElementsDropdown, setShowElementsDropdown] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
+  const [expandedElement, setExpandedElement] = useState<string | null>(null);
+
+  const toggleElement = (key: string) => {
+    setHiddenElements((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const toggleFullscreen = useCallback(() => {
     if (!sceneRef.current) return;
@@ -147,6 +165,47 @@ export default function Home() {
               <RotateCcw aria-hidden className="mr-1 inline size-4" />
               Керування фігурою
             </button>
+            {showElements && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowElementsDropdown(!showElementsDropdown)}
+                  className={`flex items-center gap-1 rounded-full border px-3 py-1 text-sm transition ${
+                    showElementsDropdown
+                      ? "border-cyan-300/60 bg-cyan-300/20 text-white shadow-glow"
+                      : "border-white/10 bg-white/5 text-slate-400 hover:border-white/25 hover:text-slate-200"
+                  }`}
+                >
+                  <Eye aria-hidden className="size-4" />
+                  Керування елементами
+                  <ChevronDown aria-hidden className={`size-3.5 transition-transform ${showElementsDropdown ? "rotate-180" : ""}`} />
+                </button>
+                {showElementsDropdown && (
+                  <div className="absolute left-0 top-full z-20 mt-2 w-56 rounded-2xl border border-white/10 bg-[#0c1a2e]/95 p-2 shadow-xl backdrop-blur-md">
+                    {active.elements.map((el) => {
+                      const hidden = hiddenElements.has(el.key);
+                      return (
+                        <button
+                          key={el.key}
+                          type="button"
+                          onClick={() => toggleElement(el.key)}
+                          className={`flex w-full items-center gap-2 rounded-xl px-3 py-1.5 text-left text-sm transition ${
+                            hidden
+                              ? "text-slate-500 hover:bg-white/5"
+                              : "text-cyan-100 hover:bg-cyan-300/10"
+                          }`}
+                        >
+                          <span className={`size-2.5 rounded-full ${
+                            hidden ? "bg-slate-600" : "bg-cyan-400"
+                          }`} />
+                          <span className={hidden ? "line-through" : ""}>{el.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <button
             type="button"
@@ -166,7 +225,7 @@ export default function Home() {
               transition={{ duration: 0.32 }}
             >
               <Suspense fallback={null}>
-                <GeometryScene figureId={activeId} params={currentParams} realLife={realLife} controlMode={controlMode} />
+                <GeometryScene figureId={activeId} params={currentParams} realLife={realLife} controlMode={controlMode} showElements={showElements} hiddenElements={hiddenElements} />
               </Suspense>
             </motion.div>
           </AnimatePresence>
@@ -175,7 +234,17 @@ export default function Home() {
         <aside className="glass rounded-3xl p-5">
           <div className="mb-5 flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-2xl font-bold">{active.name}</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-2xl font-bold">{active.name}</h2>
+                <button
+                  type="button"
+                  onClick={() => { setShowInfo(true); setExpandedElement(null); }}
+                  className="flex size-7 items-center justify-center rounded-full border border-white/15 bg-white/5 text-sm font-bold text-slate-400 transition hover:border-cyan-300/40 hover:bg-cyan-300/10 hover:text-cyan-200"
+                  title="Інформація"
+                >
+                  i
+                </button>
+              </div>
               <p className="text-sm text-slate-300">{active.definition}</p>
             </div>
             <Calculator aria-hidden className="size-6 text-orange-300" />
@@ -201,11 +270,11 @@ export default function Home() {
           </label>
 
           <div className="flex flex-col gap-4">
-            {active.controls.map((control) => (
+            {active.controls.filter((c) => !(realLife && c.key === "sides")).map((control) => (
               <div key={control.key} className="rounded-2xl border border-white/10 bg-slate-950/25 p-4">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <span className="font-semibold">{control.label}</span>
-                  <span className="rounded-full bg-cyan-300/10 px-2 py-1 text-sm text-cyan-100">{currentParams[control.key]} см</span>
+                  <span className="rounded-full bg-cyan-300/10 px-2 py-1 text-sm text-cyan-100">{currentParams[control.key]}{control.key === "sides" ? ` ${((v:number)=>{const m=v%10,d=v%100;return m===1&&d!==11?"сторона":m>=2&&m<=4&&(d<12||d>14)?"сторони":"сторін"})(currentParams[control.key])}` : " см"}</span>
                 </div>
                 <input
                   className="range w-full"
@@ -225,7 +294,30 @@ export default function Home() {
             ))}
           </div>
 
-          <div className="mt-5 grid gap-3">
+          <div className="mt-5 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setShowElements(!showElements)}
+              className={`flex items-center justify-center gap-2 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition ${
+                showElements
+                  ? "border-cyan-300/60 bg-cyan-300/20 text-white"
+                  : "border-cyan-300/20 bg-cyan-300/5 text-cyan-100 hover:border-cyan-300/40 hover:bg-cyan-300/10"
+              }`}
+            >
+              <Eye aria-hidden className="size-4" />
+              Елементи
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowFormulas(true)}
+              className="flex items-center justify-center gap-2 rounded-2xl border border-cyan-300/20 bg-cyan-300/5 px-4 py-2.5 text-sm font-semibold text-cyan-100 transition hover:border-cyan-300/40 hover:bg-cyan-300/10"
+            >
+              <FileText aria-hidden className="size-4" />
+              Формули
+            </button>
+          </div>
+
+          <div className="mt-3 grid gap-3">
             <Formula title="Об'єм" latex={active.volumeFormula} value={`${format(result.volume)} см^3`} />
             <Formula title="Площа поверхні" latex={active.surfaceFormula} value={`${format(result.surfaceArea)} см^2`} />
           </div>
@@ -257,11 +349,127 @@ export default function Home() {
         <div className="flex flex-col gap-3 text-sm text-slate-300 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
             <GraduationCap aria-hidden className="size-5 text-cyan-200" />
-            <span>Проєкт створили студенти групи ІПЗ-11: Лисак Максим та Ніколайчук Максим</span>
+            <span>Проєкт створили студенти групи ІПЗ-11: Лисак Максим(@maximilandriy) та Ніколайчук Максим(@sunabusan) для Кучеренко Наталії Миколаївни</span>
           </div>
           <span>ВСП «Оптико-механічний фаховий коледж КНУ імені Тараса Шевченка»</span>
         </div>
       </footer>
+
+      <AnimatePresence>
+        {showInfo && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowInfo(false)}
+          >
+            <motion.div
+              className="glass mx-4 max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl p-6 md:p-8"
+              initial={{ opacity: 0, scale: 0.92, y: 30 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: 30 }}
+              transition={{ duration: 0.25 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mb-6 flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-white">
+                  <Info aria-hidden className="mr-2 inline size-6 text-cyan-200" />
+                  {active.name}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setShowInfo(false)}
+                  className="rounded-full border border-white/10 bg-white/5 p-2 text-slate-400 transition hover:border-white/25 hover:text-white"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="mb-5 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <span className="mb-2 block text-sm font-semibold text-cyan-100">Визначення</span>
+                <p className="text-slate-300">{active.definition}</p>
+              </div>
+              <div className="mb-5">
+                <span className="mb-3 block text-sm font-semibold text-cyan-100">Формули</span>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {active.allFormulas.map((f) => (
+                    <div key={f.label} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
+                      <span className="mb-1 block text-xs font-medium text-slate-400">{f.label}</span>
+                      <BlockMath math={f.latex} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <span className="mb-3 block text-sm font-semibold text-cyan-100">Елементи фігури</span>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {active.elements.map((el) => (
+                    <button
+                      key={el.key}
+                      type="button"
+                      onClick={() => setExpandedElement(expandedElement === el.key ? null : el.key)}
+                      className={`rounded-2xl border text-left transition ${expandedElement === el.key ? "border-cyan-300/30 bg-cyan-300/5" : "border-white/10 bg-white/[0.04] hover:border-white/20"}`}
+                    >
+                      <div className="flex items-center gap-3 px-4 py-3">
+                        <span className={`flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${el.key.startsWith("face-") ? "bg-slate-500/20 text-slate-400" : "bg-cyan-300/15 text-cyan-200"}`}>
+                          {el.key.startsWith("face-") ? "■" : el.key}
+                        </span>
+                        <span className="text-sm text-slate-300">{el.name}</span>
+                      </div>
+                      {expandedElement === el.key && el.desc && (
+                        <p className="border-t border-white/5 px-4 py-2.5 text-xs leading-relaxed text-slate-400">{el.desc}</p>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showFormulas && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowFormulas(false)}
+          >
+            <motion.div
+              className="glass mx-4 max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl p-6 md:p-8"
+              initial={{ opacity: 0, scale: 0.92, y: 30 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: 30 }}
+              transition={{ duration: 0.25 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mb-6 flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-white">
+                  <FileText aria-hidden className="mr-2 inline size-6 text-cyan-200" />
+                  Формули — {active.name}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setShowFormulas(false)}
+                  className="rounded-full border border-white/10 bg-white/5 p-2 text-slate-400 transition hover:border-white/25 hover:text-white"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {active.allFormulas.map((f) => (
+                  <div key={f.label} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                    <span className="mb-2 block text-sm font-semibold text-cyan-100">{f.label}</span>
+                    <BlockMath math={f.latex} />
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </main>
   );
 }

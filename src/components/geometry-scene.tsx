@@ -13,11 +13,13 @@ type Props = {
   params: Parameters;
   realLife: boolean;
   controlMode?: "camera" | "figure";
+  showElements?: boolean;
+  hiddenElements?: Set<string>;
 };
 
 const scale = 0.42;
 
-export function GeometryScene({ figureId, params, realLife, controlMode = "camera" }: Props) {
+export function GeometryScene({ figureId, params, realLife, controlMode = "camera", showElements = false, hiddenElements = new Set() }: Props) {
   const figureMode = controlMode === "figure";
   return (
     <Canvas shadows camera={{ position: [6, 5, 8], fov: 42 }} dpr={[1, 1.8]}>
@@ -30,7 +32,11 @@ export function GeometryScene({ figureId, params, realLife, controlMode = "camer
       <Environment preset="city" environmentIntensity={0.3} />
       <DragRotate enabled={figureMode}>
         <Float speed={1.6} rotationIntensity={0.16} floatIntensity={0.2}>
-          <Shape figureId={figureId} params={params} realLife={realLife} />
+          {showElements ? (
+            <ElementsView figureId={figureId} params={params} hidden={hiddenElements} />
+          ) : (
+            <Shape figureId={figureId} params={params} realLife={realLife} />
+          )}
         </Float>
       </DragRotate>
       <Grid args={[18, 18]} position={[0, -2.15, 0]} cellColor="#1e3a5f" sectionColor="#22d3ee" fadeDistance={18} fadeStrength={1.5} infiniteGrid />
@@ -45,6 +51,8 @@ function DragRotate({ enabled, children }: { enabled: boolean; children: React.R
   const dragging = useRef(false);
   const prev = useRef({ x: 0, y: 0 });
   const velocity = useRef({ x: 0, y: 0 });
+  const spinning = useRef<false | "camera" | "local">(false);
+  const spinSpeed = useRef(0);
   const lastAxes = useRef({ right: new THREE.Vector3(1, 0, 0), up: new THREE.Vector3(0, 1, 0) });
   const { gl, camera } = useThree();
 
@@ -60,6 +68,8 @@ function DragRotate({ enabled, children }: { enabled: boolean; children: React.R
     const onDown = (e: PointerEvent) => {
       if (!enabled) return;
       dragging.current = true;
+      spinning.current = false;
+      spinSpeed.current = 0;
       velocity.current = { x: 0, y: 0 };
       prev.current = { x: e.clientX, y: e.clientY };
     };
@@ -77,18 +87,49 @@ function DragRotate({ enabled, children }: { enabled: boolean; children: React.R
     };
     const onUp = () => { dragging.current = false; };
 
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === "q" || e.key === "Q" || e.key === "й" || e.key === "Й") {
+        if (spinning.current === "camera") { spinning.current = false; spinSpeed.current = 0; }
+        else { spinning.current = "camera"; spinSpeed.current = 0.04; }
+      }
+      if (e.key === "e" || e.key === "E" || e.key === "у" || e.key === "У") {
+        if (spinning.current === "local") { spinSpeed.current += 0.02; }
+        else { spinning.current = "local"; spinSpeed.current = 0.03; }
+      }
+    };
+
     dom.addEventListener("pointerdown", onDown);
     dom.addEventListener("pointermove", onMove);
     dom.addEventListener("pointerup", onUp);
+    document.addEventListener("keydown", onKey);
     return () => {
       dom.removeEventListener("pointerdown", onDown);
       dom.removeEventListener("pointermove", onMove);
       dom.removeEventListener("pointerup", onUp);
+      document.removeEventListener("keydown", onKey);
     };
   }, [enabled, gl, camera]);
 
   useFrame(() => {
-    if (!groupRef.current || dragging.current || !enabled) return;
+    if (!groupRef.current) return;
+
+    if (spinning.current === "camera") {
+      const { up } = getCameraAxes();
+      const q = new THREE.Quaternion().setFromAxisAngle(up, spinSpeed.current);
+      groupRef.current.quaternion.premultiply(q);
+      return;
+    }
+    if (spinning.current === "local") {
+      const localY = new THREE.Vector3(0, 1, 0).applyQuaternion(groupRef.current.quaternion).normalize();
+      const q = new THREE.Quaternion().setFromAxisAngle(localY, spinSpeed.current);
+      groupRef.current.quaternion.premultiply(q);
+      spinSpeed.current *= 0.995;
+      if (Math.abs(spinSpeed.current) < 0.001) { spinning.current = false; spinSpeed.current = 0; }
+      return;
+    }
+
+    if (dragging.current || !enabled) return;
     const v = velocity.current;
     if (Math.abs(v.x) < 0.0001 && Math.abs(v.y) < 0.0001) return;
     const { right, up } = lastAxes.current;
@@ -100,6 +141,220 @@ function DragRotate({ enabled, children }: { enabled: boolean; children: React.R
   });
 
   return <group ref={groupRef}>{children}</group>;
+}
+
+function Annotation({ from, to, label, color = "#fb923c" }: { from: [number, number, number]; to: [number, number, number]; label: string; color?: string }) {
+  const mid: [number, number, number] = [(from[0] + to[0]) / 2, (from[1] + to[1]) / 2, (from[2] + to[2]) / 2];
+  // compute an offset direction perpendicular-ish to the line for the leader
+  const dir = useMemo(() => {
+    const d = new THREE.Vector3(to[0] - from[0], to[1] - from[1], to[2] - from[2]);
+    const up = new THREE.Vector3(0, 1, 0);
+    const perp = new THREE.Vector3().crossVectors(d, up).normalize();
+    if (perp.length() < 0.01) perp.set(1, 0, 0);
+    return perp.multiplyScalar(0.45).add(new THREE.Vector3(0, 0.25, 0));
+  }, [from, to]);
+  const labelPos: [number, number, number] = [mid[0] + dir.x, mid[1] + dir.y, mid[2] + dir.z];
+  const mainLine = useMemo(() => new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...from), new THREE.Vector3(...to)]), [from, to]);
+  const leaderLine = useMemo(() => new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...mid), new THREE.Vector3(...labelPos)]), [mid, labelPos]);
+  return (
+    <group>
+      <line>
+        <primitive object={mainLine} attach="geometry" />
+        <lineBasicMaterial color={color} linewidth={2} />
+      </line>
+      <line>
+        <primitive object={leaderLine} attach="geometry" />
+        <lineBasicMaterial color={color} linewidth={1} transparent opacity={0.5} />
+      </line>
+      <mesh position={to}>
+        <sphereGeometry args={[0.04, 8, 8]} />
+        <meshBasicMaterial color={color} />
+      </mesh>
+      <mesh position={from}>
+        <sphereGeometry args={[0.04, 8, 8]} />
+        <meshBasicMaterial color={color} />
+      </mesh>
+      <mesh position={mid}>
+        <sphereGeometry args={[0.03, 8, 8]} />
+        <meshBasicMaterial color={color} />
+      </mesh>
+      <Html position={labelPos} center distanceFactor={8}>
+        <div style={{ background: "rgba(0,0,0,0.75)", color, padding: "2px 8px", borderRadius: 6, fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", border: `1px solid ${color}` }}>
+          {label}
+        </div>
+      </Html>
+    </group>
+  );
+}
+
+function FaceLabel({ position, label, offset = [0.4, 0.3, 0] }: { position: [number, number, number]; label: string; offset?: [number, number, number] }) {
+  const target: [number, number, number] = [position[0] + offset[0], position[1] + offset[1], position[2] + offset[2]];
+  const points = useMemo(() => [new THREE.Vector3(...position), new THREE.Vector3(...target)], [position, target]);
+  const lineGeo = useMemo(() => new THREE.BufferGeometry().setFromPoints(points), [points]);
+  return (
+    <group>
+      <line>
+        <primitive object={lineGeo} attach="geometry" />
+        <lineBasicMaterial color="#64748b" linewidth={1} />
+      </line>
+      <mesh position={position}>
+        <sphereGeometry args={[0.03, 8, 8]} />
+        <meshBasicMaterial color="#94a3b8" />
+      </mesh>
+      <Html position={target} center distanceFactor={8}>
+        <div style={{ background: "rgba(0,0,0,0.75)", color: "#cbd5e1", padding: "2px 10px", borderRadius: 6, fontSize: 11, fontWeight: 500, whiteSpace: "nowrap", border: "1px solid rgba(148,163,184,0.3)", pointerEvents: "none" }}>
+          {label}
+        </div>
+      </Html>
+    </group>
+  );
+}
+
+function ElementsView({ figureId, params, hidden }: { figureId: FigureId; params: Parameters; hidden: Set<string> }) {
+  const show = (key: string) => !hidden.has(key);
+
+  switch (figureId) {
+    case "cube": {
+      const a = params.edge * scale;
+      const h = a / 2;
+      return (
+        <group>
+          <mesh scale={[a, a, a]}>
+            {boxGeometry()}
+            <meshStandardMaterial color="#22d3ee" wireframe opacity={0.4} transparent />
+          </mesh>
+          {show("a") && <Annotation from={[-h, -h, h]} to={[h, -h, h]} label="Ребро" />}
+          {show("a") && <Annotation from={[h, -h, h]} to={[h, h, h]} label="Ребро" color="#22d3ee" />}
+          {show("D") && <Annotation from={[-h, -h, h]} to={[h, h, -h]} label="Діагональ куба" color="#a78bfa" />}
+          {show("d") && <Annotation from={[-h, -h, h]} to={[h, -h, -h]} label="Діагональ грані" color="#fbbf24" />}
+          {show("face-top") && <FaceLabel position={[0, h, 0]} label="Верхня грань" offset={[0.5, 0.4, 0]} />}
+          {show("face-bottom") && <FaceLabel position={[0, -h, 0]} label="Нижня грань" offset={[0.5, -0.4, 0]} />}
+          {show("face-front") && <FaceLabel position={[0, 0, h]} label="Передня грань" offset={[0.5, 0.3, 0.3]} />}
+          {show("face-side") && <FaceLabel position={[h, 0, 0]} label="Бічна грань" offset={[0.4, 0.3, 0]} />}
+        </group>
+      );
+    }
+    case "cuboid": {
+      const lx = params.length * scale;
+      const ly = params.height * scale;
+      const lz = params.width * scale;
+      const hx = lx / 2, hy = ly / 2, hz = lz / 2;
+      return (
+        <group>
+          <mesh scale={[lx, ly, lz]}>
+            {boxGeometry()}
+            <meshStandardMaterial color="#22d3ee" wireframe opacity={0.4} transparent />
+          </mesh>
+          {show("edge") && <Annotation from={[-hx, -hy, hz]} to={[hx, -hy, hz]} label="Ребро" />}
+          {show("D") && <Annotation from={[-hx, -hy, hz]} to={[hx, hy, -hz]} label="Діагональ паралелепіпеда" color="#fbbf24" />}
+          {show("d") && <Annotation from={[-hx, -hy, hz]} to={[hx, -hy, -hz]} label="Діагональ грані" color="#a78bfa" />}
+          {show("face-side") && <FaceLabel position={[hx, 0, -hz * 0.5]} label="Грань" offset={[0.4, 0.3, -0.2]} />}
+        </group>
+      );
+    }
+    case "sphere": {
+      const r = params.radius * scale;
+      return (
+        <group>
+          <mesh>
+            <sphereGeometry args={[r, 32, 16]} />
+            <meshStandardMaterial color="#22d3ee" wireframe opacity={0.3} transparent />
+          </mesh>
+          {show("r") && <Annotation from={[0, 0, 0]} to={[r, 0, 0]} label="Радіус" />}
+          {show("D") && <Annotation from={[-r, 0, 0]} to={[r, 0, 0]} label="Діаметр" color="#a78bfa" />}
+          <mesh position={[0, 0, 0]}>
+            <sphereGeometry args={[0.05, 8, 8]} />
+            <meshBasicMaterial color="#fff" />
+          </mesh>
+          {show("face-surface") && <FaceLabel position={[0, r, 0]} label="Поверхня" offset={[0.5, 0.4, 0]} />}
+        </group>
+      );
+    }
+    case "cylinder": {
+      const r = params.radius * scale;
+      const h = params.height * scale;
+      return (
+        <group>
+          <mesh>
+            <cylinderGeometry args={[r, r, h, 32]} />
+            <meshStandardMaterial color="#22d3ee" wireframe opacity={0.3} transparent />
+          </mesh>
+          {show("h") && <Annotation from={[0, -h / 2, 0]} to={[0, h / 2, 0]} label="Висота" color="#a78bfa" />}
+          {show("r") && <Annotation from={[0, h / 2, 0]} to={[r, h / 2, 0]} label="Радіус" />}
+          {show("l") && <Annotation from={[r, -h / 2, 0]} to={[r, h / 2, 0]} label="Твірна" color="#fbbf24" />}
+          {show("face-base") && <FaceLabel position={[0, h / 2, 0]} label="Основа" offset={[0.5, 0.4, 0]} />}
+          {show("face-base") && <FaceLabel position={[0, -h / 2, 0]} label="Основа" offset={[0.5, -0.4, 0]} />}
+          {show("face-side") && <FaceLabel position={[-r, 0, 0]} label="Бічна поверхня" offset={[-0.4, 0.3, 0]} />}
+        </group>
+      );
+    }
+    case "cone": {
+      const r = params.radius * scale;
+      const h = params.height * scale;
+      const l = Math.sqrt(r * r + h * h);
+      return (
+        <group>
+          <mesh>
+            <coneGeometry args={[r, h, 32]} />
+            <meshStandardMaterial color="#22d3ee" wireframe opacity={0.3} transparent />
+          </mesh>
+          {show("h") && <Annotation from={[0, -h / 2, 0]} to={[0, h / 2, 0]} label="Висота" color="#a78bfa" />}
+          {show("r") && <Annotation from={[0, -h / 2, 0]} to={[r, -h / 2, 0]} label="Радіус" />}
+          {show("l") && <Annotation from={[0, h / 2, 0]} to={[r, -h / 2, 0]} label="Твірна" color="#fbbf24" />}
+          {show("face-apex") && <FaceLabel position={[0, h / 2, 0]} label="Вершина" offset={[0.5, 0.4, 0]} />}
+          {show("face-base") && <FaceLabel position={[0, -h / 2, 0]} label="Основа" offset={[0.5, -0.4, 0]} />}
+          {show("face-side") && <FaceLabel position={[r * 0.5, 0, 0]} label="Бічна поверхня" offset={[0.5, 0.3, 0]} />}
+        </group>
+      );
+    }
+    case "pyramid": {
+      const n = params.sides ?? 4;
+      const a = params.base * scale;
+      const h = params.height * scale;
+      const R = a / (2 * Math.sin(Math.PI / n));
+      const ri = a / (2 * Math.tan(Math.PI / n));
+      const angle0 = Math.PI / 2 + Math.PI / n;
+      const v0: [number, number, number] = [R * Math.cos(angle0), -h / 2, R * Math.sin(angle0)];
+      const angle1 = angle0 - 2 * Math.PI / n;
+      const v1: [number, number, number] = [R * Math.cos(angle1), -h / 2, R * Math.sin(angle1)];
+      const midX = (v0[0] + v1[0]) / 2;
+      const midZ = (v0[2] + v1[2]) / 2;
+      return (
+        <group>
+          <mesh>
+            <coneGeometry args={[R, h, n]} />
+            <meshStandardMaterial color="#22d3ee" wireframe opacity={0.3} transparent />
+          </mesh>
+          {show("a") && <Annotation from={v0} to={v1} label="Сторона основи" />}
+          {show("h") && <Annotation from={[0, -h / 2, 0]} to={[0, h / 2, 0]} label="Висота" color="#a78bfa" />}
+          {show("l") && <Annotation from={[0, h / 2, 0]} to={[midX, -h / 2, midZ]} label="Апофема" color="#fbbf24" />}
+          {show("b") && <Annotation from={[0, h / 2, 0]} to={v1} label="Бокове ребро" color="#38bdf8" />}
+          {show("R") && <Annotation from={[0, -h / 2, 0]} to={v0} label="Радіус описаного кола" color="#f472b6" />}
+          {show("r") && <Annotation from={[0, -h / 2, 0]} to={[midX, -h / 2, midZ]} label="Радіус вписаного кола" color="#4ade80" />}
+          {show("face-apex") && <FaceLabel position={[0, h / 2, 0]} label="Вершина" offset={[0.5, 0.4, 0]} />}
+          {show("face-base") && <FaceLabel position={[0, -h / 2, 0]} label="Основа" offset={[0.5, -0.4, 0]} />}
+          {show("face-side") && <FaceLabel position={[R * 0.5, 0, R * 0.5]} label="Бічна грань" offset={[0.4, 0.3, 0.4]} />}
+        </group>
+      );
+    }
+    case "prism": {
+      const a = params.base * scale;
+      const h = params.height * scale;
+      return (
+        <group rotation={[0, 0, Math.PI / 2]}>
+          <mesh>
+            <cylinderGeometry args={[a / Math.sqrt(3), a / Math.sqrt(3), h, 3]} />
+            <meshStandardMaterial color="#22d3ee" wireframe opacity={0.3} transparent />
+          </mesh>
+          {show("h") && <Annotation from={[0, -h / 2, 0]} to={[0, h / 2, 0]} label="Висота" color="#a78bfa" />}
+          {show("a") && <Annotation from={[0, -h / 2, -a / Math.sqrt(3)]} to={[0, -h / 2, a / (2 * Math.sqrt(3))]} label="Сторона основи" />}
+          {show("face-base") && <FaceLabel position={[0, h / 2, 0]} label="Основа" offset={[0.5, 0.4, 0]} />}
+          {show("face-base") && <FaceLabel position={[0, -h / 2, 0]} label="Основа" offset={[0.5, -0.4, 0]} />}
+          {show("face-side") && <FaceLabel position={[0, 0, a / Math.sqrt(3)]} label="Бічна грань" offset={[0.4, 0.3, 0.3]} />}
+        </group>
+      );
+    }
+  }
 }
 
 function Shape({ figureId, params, realLife }: Props) {
@@ -142,13 +397,16 @@ function GeometricObject({ figureId, params }: Omit<Props, "realLife">) {
           {material}
         </mesh>
       );
-    case "pyramid":
+    case "pyramid": {
+      const n = params.sides ?? 4;
+      const R = (params.base * scale) / (2 * Math.sin(Math.PI / n));
       return (
         <mesh castShadow receiveShadow>
-          <coneGeometry args={[(params.base * scale) / Math.SQRT2, params.height * scale, 4]} />
+          <coneGeometry args={[R, params.height * scale, n]} />
           {material}
         </mesh>
       );
+    }
     case "prism":
       return (
         <mesh castShadow receiveShadow rotation={[0, 0, Math.PI / 2]}>
