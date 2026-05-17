@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { Canvas } from "@react-three/fiber";
-import { ContactShadows, Environment, Float, Grid, Html, OrbitControls, PresentationControls, Text } from "@react-three/drei";
+import { ContactShadows, Environment, Float, Grid, Html, OrbitControls, PresentationControls, Text, useTexture } from "@react-three/drei";
 import * as THREE from "three";
 import { BufferGeometry, DoubleSide, Float32BufferAttribute } from "three";
 import { FigureId, Parameters } from "@/lib/figures";
@@ -121,7 +121,7 @@ function RealObject({ figureId, params }: Omit<Props, "realLife">) {
       return (
         <group>
           <Can radius={params.radius * scale} height={params.height * scale} />
-          <ObjectLabel text="Банка напою" />
+          <ObjectLabel text="Банка бобів" />
         </group>
       );
     case "cone":
@@ -201,59 +201,10 @@ function Rubik({ size }: { size: number }) {
 function Brick({ scaleProps }: { scaleProps: [number, number, number] }) {
   const [length, height, width] = scaleProps;
 
-  const brickTexture = useMemo(() => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 512;
-    canvas.height = 256;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-
-    ctx.fillStyle = "#9f4a32";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    for (let y = 0; y < canvas.height; y += 64) {
-      ctx.fillStyle = y % 128 === 0 ? "#b85b3c" : "#8f3f2b";
-      ctx.fillRect(0, y, canvas.width, 64);
-    }
-
-    ctx.strokeStyle = "#4f2319";
-    ctx.lineWidth = 8;
-
-    for (let y = 64; y < canvas.height; y += 64) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(canvas.width, y);
-      ctx.stroke();
-    }
-
-    for (let row = 0; row < 4; row += 1) {
-      const y = row * 64;
-      const offset = row % 2 === 0 ? 0 : 64;
-
-      for (let x = -offset; x < canvas.width; x += 128) {
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x, y + 64);
-        ctx.stroke();
-      }
-    }
-
-    ctx.fillStyle = "rgba(255, 220, 180, 0.12)";
-    for (let i = 0; i < 120; i += 1) {
-      const x = (i * 47) % canvas.width;
-      const y = (i * 83) % canvas.height;
-      ctx.fillRect(x, y, 2 + (i % 4), 1 + (i % 3));
-    }
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(2, 1);
-    texture.colorSpace = THREE.SRGBColorSpace;
-
-    return texture;
-  }, []);
+  const brickTexture = useTexture("/textures/brick.jpg");
+  brickTexture.wrapS = THREE.RepeatWrapping;
+  brickTexture.wrapT = THREE.RepeatWrapping;
+  brickTexture.colorSpace = THREE.SRGBColorSpace;
   
   return (
     <group rotation={[0.02, -0.08, 0.01]}>
@@ -299,50 +250,37 @@ function Book({ scaleProps }: { scaleProps: [number, number, number] }) {
 }
 
 function Planet({ radius }: { radius: number }) {
+  const earthTexture = useTexture("/textures/earth.jpg");
+  earthTexture.colorSpace = THREE.SRGBColorSpace;
+
   return (
     <group>
       <mesh castShadow receiveShadow>
         <sphereGeometry args={[radius, 64, 64]} />
-        <meshStandardMaterial color="#2563eb" roughness={0.58} />
-      </mesh>
-      {Array.from({ length: 7 }).map((_, index) => (
-        <mesh key={index} position={[Math.cos(index * 1.7) * radius * 0.55, Math.sin(index * 1.15) * radius * 0.35, radius * 0.82]} scale={[radius * 0.22, radius * 0.04, radius * 0.1]} rotation={[0, 0, index * 0.8]}>
-          <sphereGeometry args={[1, 16, 16]} />
-          <meshStandardMaterial color={index % 2 ? "#22c55e" : "#16a34a"} roughness={0.8} />
-        </mesh>
-      ))}
-      <mesh rotation={[0.85, 0.2, 0.4]}>
-        <torusGeometry args={[radius * 1.2, radius * 0.03, 12, 100]} />
-        <meshStandardMaterial color="#f8fafc" emissive="#38bdf8" emissiveIntensity={0.1} />
+        <meshStandardMaterial map={earthTexture} roughness={0.7} metalness={0.05} />
       </mesh>
     </group>
   );
 }
 
 function Can({ radius, height }: { radius: number; height: number }) {
+  const [labelTex, topTex, bottomTex] = useTexture([
+    "/textures/beans-label.jpg",
+    "/textures/beans-top.jpg",
+    "/textures/beans-bottom.jpg",
+  ]);
+  labelTex.colorSpace = THREE.SRGBColorSpace;
+  topTex.colorSpace = THREE.SRGBColorSpace;
+  bottomTex.colorSpace = THREE.SRGBColorSpace;
+
   return (
     <group>
       <mesh castShadow receiveShadow>
         <cylinderGeometry args={[radius, radius, height, 64]} />
-        <meshStandardMaterial color="#dc2626" metalness={0.25} roughness={0.28} />
+        <meshStandardMaterial attach="material-0" map={labelTex} roughness={0.3} metalness={0.4} />
+        <meshStandardMaterial attach="material-1" map={topTex} roughness={0.2} metalness={0.6} />
+        <meshStandardMaterial attach="material-2" map={bottomTex} roughness={0.2} metalness={0.6} />
       </mesh>
-      {[-1, 1].map((side) => (
-        <mesh key={side} position={[0, (height / 2 + 0.035) * side, 0]}>
-          <cylinderGeometry args={[radius * 1.01, radius * 1.01, 0.07, 64]} />
-          <meshStandardMaterial color="#e5e7eb" metalness={0.7} roughness={0.16} />
-        </mesh>
-      ))}
-      <mesh position={[0, height / 2 + 0.085, 0]} rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[radius * 0.36, radius * 0.035, 12, 48]} />
-        <meshStandardMaterial color="#e5e7eb" metalness={0.6} roughness={0.18} />
-      </mesh>
-      <mesh position={[radius * 0.68, 0.08, radius * 0.7]} rotation={[0, 0.26, 0]} scale={[0.045, height * 0.78, 0.035]}>
-        {boxGeometry()}
-        <meshStandardMaterial color="#ffffff" roughness={0.3} />
-      </mesh>
-      <Text position={[0, 0.1, radius + 0.035]} rotation={[0, 0, -0.08]} fontSize={Math.min(0.44, radius * 0.42)} color="#ffffff" anchorX="center">
-        COLA
-      </Text>
     </group>
   );
 }
