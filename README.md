@@ -35,13 +35,11 @@ git clone <URL_РЕПОЗИТОРІЮ>
 cd mathematics-site-OMFK
 ```
 
-Встановіть усі залежності:
+Встановіть залежності:
 
 ```bash
-npm run install:all
+npm install
 ```
-
-Ця команда встановлює npm-залежності та браузер Chromium для локальної перевірки через Playwright.
 
 ## Запуск у режимі розробки
 
@@ -64,9 +62,10 @@ npm run build
 ## Доступні команди
 
 ```bash
-npm run install:all
+npm install
 npm run dev
 npm run build
+npm run start
 ```
 
 ## Структура проєкту
@@ -86,3 +85,15 @@ src/app/globals.css                глобальні стилі
 
 ВСП «Оптико-механічний фаховий коледж  
 КНУ імені Тараса Шевченка»
+
+
+## Деплой на Vercel
+
+Проєкт готовий до стандартного деплою Next.js на Vercel без додаткової конфігурації:
+
+- **Framework Preset:** Next.js
+- **Install Command:** `npm install`
+- **Build Command:** `npm run build`
+- **Output Directory:** залишити порожнім
+
+Playwright для роботи сайту та деплою на Vercel не потрібен; його прибрано з залежностей, бо в проєкті немає e2e-тестів, які його використовують.
