@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
-import { ContactShadows, Environment, Float, Grid, Html, OrbitControls, Text, useTexture } from "@react-three/drei";
+import { ContactShadows, Float, Grid, Html, OrbitControls, Text, useTexture } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { BufferGeometry, DoubleSide, Float32BufferAttribute } from "three";
@@ -26,10 +26,10 @@ export function GeometryScene({ figureId, params, realLife, controlMode = "camer
       <color attach="background" args={["#07111f"]} />
       <fog attach="fog" args={["#07111f", 12, 24]} />
       <ambientLight intensity={0.7} />
+      <hemisphereLight args={["#dbeafe", "#0f172a", 0.65]} />
       <directionalLight castShadow position={[5, 8, 5]} intensity={1.2} shadow-mapSize={[2048, 2048]} />
       <pointLight position={[-4, 3, -3]} intensity={0.6} color="#22d3ee" />
       <pointLight position={[4, 2, 3]} intensity={0.5} color="#fb923c" />
-      <Environment preset="city" environmentIntensity={0.3} />
       <DragRotate enabled={figureMode}>
         <Float speed={1.6} rotationIntensity={0.16} floatIntensity={0.2}>
           {showElements ? (
@@ -735,4 +735,3 @@ function ChocolatePrism({ base, height }: { base: number; height: number }) {
     </group>
   );
 }
-
